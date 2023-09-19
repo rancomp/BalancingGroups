@@ -54,4 +54,15 @@ if __name__ == "__main__":
     os.makedirs(args["output_dir"], exist_ok=True)
     torch.manual_seed(0)
     commands = [commands[int(p)] for p in torch.randperm(len(commands))]
-    executor.map_array(run_experiment, commands)
+    if args['slurm_partition'] is not None:
+        executor = submitit.SlurmExecutor(folder=args['slurm_output_dir'])
+        executor.update_parameters(
+            time=args["max_time"],
+            gpus_per_node=1,
+            array_parallelism=512,
+            cpus_per_task=4,
+            partition=args["slurm_partition"])
+        executor.map_array(run_experiment, commands)
+    else:
+        for command in commands:
+            run_experiment(command)
