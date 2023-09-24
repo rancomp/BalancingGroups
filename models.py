@@ -3,6 +3,8 @@
 import torch
 import torchvision
 from transformers import BertForSequenceClassification, AdamW, get_scheduler
+import numpy as np
+import os
 
 
 class ToyNet(torch.nn.Module):
@@ -210,6 +212,88 @@ class ERM(torch.nn.Module):
                 "scheduler": lr_dict,
                 "epoch": self.last_epoch,
                 "best_selec_val": self.best_selec_val,
+            },
+            fname,
+        )
+
+class SSE:
+    def __init__(self, hparams, dataloader):
+        self.dataloader = dataloader
+        self.hparams = dict(hparams)
+        self.n_batches = len(dataloader)
+        dataset = dataloader.dataset
+        self.data_type = dataset.data_type
+        self.n_classes = len(set(dataset.y))
+        self.n_groups = len(set(dataset.g))
+        self.n_examples = len(dataset)
+        self.last_epoch = 0
+        self.best_selec_val = 0
+
+        self.num_models = hparams.get("num_models", 10)
+        self.models = [ERM(hparams, dataloader) for _ in range(self.num_models)]
+
+    def predict(self, x):
+        # Collect predictions from all models
+        predictions = [model.predict(x) for model in self.models]
+        # Perform majority vote
+        ensemble_predictions = torch.stack(predictions).mean(dim=0)
+        return ensemble_predictions
+
+    def accuracy(self, test_loader):
+        accuracies, class_accuracies = zip(*[model.accuracy(test_loader) for model in self.models])
+        return np.mean(accuracies), list(np.mean(class_accuracies, axis=0))
+
+    def update(self, i, x, y, g, epoch):
+        for model in self.models:
+            loss_value = model.update(i, x, y, g, epoch)
+
+    def load(self, fname):
+        # Load ensemble-specific information
+        ensemble_info_path = os.path.join(self.hparams["output_dir"], "ensemble_info.pt")
+        ensemble_info = torch.load(ensemble_info_path)
+        self.num_models = ensemble_info["num_models"]
+        self.last_epoch = ensemble_info["last_epoch"]
+        
+        # Load each individual model in the ensemble
+        self.models = [ERM(self.hparams, self.dataloader).load(fname.replace("best", f"model{i}_best")) for i in range(self.num_models)]
+
+    def save(self, fname):
+        # Save each individual model in the ensemble with a unique filename
+        for i, model in enumerate(self.models):
+            model.save(fname.replace("best", f"model{i}_best"))
+
+        # Save ensemble-specific information (e.g., hyperparameters)
+        ensemble_info = {
+            "num_models": self.num_models,
+            "last_epoch": self.last_epoch,
+            # Add any other relevant ensemble information here
+        }
+        ensemble_info_path = os.path.join(self.hparams["output_dir"], "ensemble_info.pt")
+        torch.save(ensemble_info, ensemble_info_path)
+
+    def load(self, fname):
+        dicts = torch.load(fname)
+        self.num_models = dicts["num_models"]
+        self.last_epoch = dicts["epoch"]
+        self.models = [ERM]
+        for i in range(self.num_models):
+            self.models[i].load_state_dict(dicts[f"model_{i}"])
+        self.optimizer.load_state_dict(dicts["optimizer"])
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.load_state_dict(dicts["scheduler"])
+
+    def save(self, fname):
+        lr_dict = None
+        if self.lr_scheduler is not None:
+            lr_dict = self.lr_scheduler.state_dict()
+        torch.save(
+            {
+                **{"model_{i}": self.models[i].state_dict() for i in range(self.num_models)},
+                "optimizer": self.optimizer.state_dict(),
+                "scheduler": lr_dict,
+                "epoch": self.last_epoch,
+                "best_selec_val": self.best_selec_val,
+                "num_models": self.num_models,
             },
             fname,
         )

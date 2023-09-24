@@ -48,6 +48,18 @@ def load_model(path):
     model.to(DEVICE)
     return model
 
+def load_model(path, exp):
+    model = {
+        "erm": models.ERM,
+        "suby": models.ERM,
+        "subg": models.ERM,
+        "rwy": models.ERM,
+        "rwg": models.ERM,
+        "dro": models.GroupDRO,
+        "jtt": models.JTT,
+        "sse": models.SSE,
+    }[args["method"]](args, loaders["tr"])
+    pass
 
 def plot(
     exps,
@@ -148,7 +160,7 @@ if __name__ == "__main__":
     dim_noise = 1200
     DEVICE = 0
     gammas = [4, 1.0, 20.0]
-    exps = ["erm", "subg", "rwg"]
+    exps = ["erm", "sse"]#["erm", "subg", "rwg"]
 
     df = parse_json_to_df(["toy_sweep"])
     idx = [
@@ -185,7 +197,7 @@ if __name__ == "__main__":
         for i in range(seeds):
             torch.manual_seed(i)
             np.random.seed(i)
-            d = Toy("tr")
+            d = Toy("/toy_sweep", "tr")
             datasets.append((d.x, d.y))
 
         all_hm = torch.zeros(len(exps), seeds, 200 * 200)

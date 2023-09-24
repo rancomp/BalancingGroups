@@ -339,7 +339,7 @@ def get_loaders(data_path, dataset_name, batch_size, method="erm", duplicates=No
 
     if method == "subg":
         subsample_what = "groups"
-    elif method == "suby":
+    elif method == "suby" or method == "sse":
         subsample_what = "classes"
     else:
         subsample_what = None

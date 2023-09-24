@@ -74,7 +74,8 @@ def run_experiment(args):
         "rwy": models.ERM,
         "rwg": models.ERM,
         "dro": models.GroupDRO,
-        "jtt": models.JTT
+        "jtt": models.JTT,
+        "sse": models.SSE,
     }[args["method"]](args, loaders["tr"])
 
     last_epoch = 0
