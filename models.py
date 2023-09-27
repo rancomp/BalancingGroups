@@ -275,22 +275,13 @@ class SSE:
         dicts = torch.load(fname)
         self.num_models = dicts["num_models"]
         self.last_epoch = dicts["epoch"]
-        self.models = [ERM]
         for i in range(self.num_models):
             self.models[i].load_state_dict(dicts[f"model_{i}"])
-        self.optimizer.load_state_dict(dicts["optimizer"])
-        if self.lr_scheduler is not None:
-            self.lr_scheduler.load_state_dict(dicts["scheduler"])
 
     def save(self, fname):
-        lr_dict = None
-        if self.lr_scheduler is not None:
-            lr_dict = self.lr_scheduler.state_dict()
         torch.save(
             {
-                **{"model_{i}": self.models[i].state_dict() for i in range(self.num_models)},
-                "optimizer": self.optimizer.state_dict(),
-                "scheduler": lr_dict,
+                **{f"model_{i}": self.models[i].state_dict() for i in range(self.num_models)},
                 "epoch": self.last_epoch,
                 "best_selec_val": self.best_selec_val,
                 "num_models": self.num_models,
