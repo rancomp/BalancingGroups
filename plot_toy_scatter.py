@@ -5,14 +5,17 @@ from matplotlib.colors import ListedColormap
 import numpy as np
 import torch
 import torch.utils.data
-from models import ToyNet
-from parse import parse_json_to_df
-from datasets import Toy
 import matplotlib.pyplot as plt
 from torch import FloatTensor as FT
 import seaborn as sns
 from tqdm import tqdm
 import itertools
+
+from datasets import get_loaders
+from models import ToyNet
+import models
+from parse import parse_json_to_df
+from datasets import Toy
 
 
 def generate_heatmap_plane(X):
@@ -49,6 +52,19 @@ def load_model(path):
     return model
 
 def load_model(path, exp):
+    loaders = get_loaders("data", "toy", 250, exp)
+    args = {
+        'num_models':10,
+        'dim_noise': 1200,
+        'gamma_spu': 4.0,
+        'gamma_core': 1.0,
+        'gamma_noise': 2.0,
+        'lr': 1e-5,
+        'weight_decay': 0.1,
+        'T': 1,
+        'up': 1,
+        'eta': 0.1,
+    }
     model = {
         "erm": models.ERM,
         "suby": models.ERM,
@@ -58,8 +74,9 @@ def load_model(path, exp):
         "dro": models.GroupDRO,
         "jtt": models.JTT,
         "sse": models.SSE,
-    }[args["method"]](args, loaders["tr"])
-    pass
+    }[exp](args, loaders["tr"])
+    model.load(path)
+    return model
 
 def plot(
     exps,
@@ -160,7 +177,7 @@ if __name__ == "__main__":
     dim_noise = 1200
     DEVICE = 0
     gammas = [4, 1.0, 20.0]
-    exps = ["erm", "sse"]#["erm", "subg", "rwg"]
+    exps = ["sse"]#["erm", "subg", "rwg"]
 
     df = parse_json_to_df(["toy_sweep"])
     idx = [
@@ -176,7 +193,7 @@ if __name__ == "__main__":
 
     def get_ploting_params(df):
         models = {
-            (exp, seed): load_model(path.replace(".pt", ".best.pt"))
+            (exp, seed): load_model(path.replace(".pt", ".best.pt"), exp)
             for exp, seed, path in (
                 df.groupby(["method", "init_seed", "file_path"]).groups.keys()
             )
@@ -204,7 +221,7 @@ if __name__ == "__main__":
         for exp_i, exp in enumerate(exps):
             for i in range(seeds):
                 heatmap_plane = generate_heatmap_plane(datasets[i][0]).to(DEVICE)
-                all_hm[exp_i, i] = models[(exp, i)](heatmap_plane).detach().cpu()
+                all_hm[exp_i, i] = models[(exp, i)].predict(heatmap_plane).detach().cpu()
         return exps, datasets, all_hm, gammas, heatmap_plane, df
 
     groups = df.groupby(
