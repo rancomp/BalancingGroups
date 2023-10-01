@@ -139,13 +139,13 @@ class ERM(torch.nn.Module):
                 torch.nn.BCEWithLogitsLoss(reduction="none")(x.squeeze(),
                                                              y.float())
 
-        self.cuda()
+        self.to("cuda")
 
     def compute_loss_value_(self, i, x, y, g, epoch):
         return self.loss(self.network(x), y).mean()
 
     def update(self, i, x, y, g, epoch):
-        x, y, g = x.cuda(), y.cuda(), g.cuda()
+        x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
         loss_value = self.compute_loss_value_(i, x, y, g, epoch)
 
         if loss_value is not None:
@@ -174,21 +174,35 @@ class ERM(torch.nn.Module):
     def accuracy(self, loader):
         nb_groups = loader.dataset.nb_groups
         nb_labels = loader.dataset.nb_labels
-        corrects = torch.zeros(nb_groups * nb_labels)
-        totals = torch.zeros(nb_groups * nb_labels)
+        corrects = torch.zeros(nb_groups * nb_labels, device="cuda")
+        totals = torch.zeros(nb_groups * nb_labels, device="cuda")
         self.eval()
         with torch.no_grad():
             for i, x, y, g in loader:
-                predictions = self.predict(x.cuda())
+                x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
+                predictions = self.predict(x)
                 if predictions.squeeze().ndim == 1:
-                    predictions = (predictions > 0).cpu().eq(y).float()
+                    predictions = (predictions > 0).eq(y).float()
                 else:
-                    predictions = predictions.argmax(1).cpu().eq(y).float()
+                    predictions = predictions.argmax(1).eq(y).float()
+
                 groups = (nb_groups * y + g)
-                for gi in groups.unique():
-                    corrects[gi] += predictions[groups == gi].sum()
-                    totals[gi] += (groups == gi).sum()
+                # for gi in groups.unique():
+                #     corrects[gi] += predictions[groups == gi].sum()
+                #     totals[gi] += (groups == gi).sum()
+
+                unique_groups = groups.unique()
+                # Compute batch-level corrects and totals
+                batch_corrects = torch.bincount(groups, predictions, minlength=corrects.size(0))
+                batch_totals = torch.bincount(groups, torch.ones_like(groups), minlength=corrects.size(0))
+                
+                # Accumulate batch-level results
+                corrects += batch_corrects
+                totals += batch_totals
+
+                
         corrects, totals = corrects.tolist(), totals.tolist()
+
         self.train()
         return sum(corrects) / sum(totals),\
             [c/t for c, t in zip(corrects, totals)]
@@ -294,7 +308,7 @@ class GroupDRO(ERM):
     def __init__(self, hparams, dataset):
         super(GroupDRO, self).__init__(hparams, dataset)
         self.register_buffer(
-            "q", torch.ones(self.n_classes * self.n_groups).cuda())
+            "q", torch.ones(self.n_classes * self.n_groups).to("cuda"))
 
     def groups_(self, y, g):
         idx_g, idx_b = [], []
@@ -326,7 +340,7 @@ class JTT(ERM):
     def __init__(self, hparams, dataset):
         super(JTT, self).__init__(hparams, dataset)
         self.register_buffer(
-            "weights", torch.ones(self.n_examples, dtype=torch.long).cuda())
+            "weights", torch.ones(self.n_examples, dtype=torch.long).to("cuda"))
 
     def compute_loss_value_(self, i, x, y, g, epoch):
         if epoch == self.hparams["T"] + 1 and\
