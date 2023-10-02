@@ -191,11 +191,9 @@ class ERM(torch.nn.Module):
                 #     corrects[gi] += predictions[groups == gi].sum()
                 #     totals[gi] += (groups == gi).sum()
 
-                unique_groups = groups.unique()
                 # Compute batch-level corrects and totals
                 batch_corrects = torch.bincount(groups, predictions, minlength=corrects.size(0))
                 batch_totals = torch.bincount(groups, torch.ones_like(groups), minlength=corrects.size(0))
-                
                 # Accumulate batch-level results
                 corrects += batch_corrects
                 totals += batch_totals

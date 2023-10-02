@@ -4,4 +4,4 @@ debug
 *.pyc
 figures*
 .vscode
-*_sweep
+*_sweep*

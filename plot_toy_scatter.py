@@ -87,6 +87,8 @@ def plot(
     error_df,
     filename="toy_exp",
 ):
+
+    PLOT_HEATMAP = False
     heatmap = all_hm.mean(1)
 
     matplotlib.rcParams["contour.negative_linestyle"] = "solid"
@@ -158,16 +160,17 @@ def plot(
         l.get_legend().remove()
         ax_.grid(color="k", linestyle="--", linewidth=0.5, alpha=0.3)
         ax_.set_title(exps[i].upper())
-        # ax_.set_xscale("log")
+        ax_.set_xscale("log")
         ax_.set_xlabel("Iterations")
         ax_.set_ylabel("worst-group-accuracy")
         ax_.set_ylim([-0.005, 1.005])
 
-    lg = fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.05))
+    lg = fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.8, -0.05))
+    fg = fig.suptitle(filename, x=0.4, y=0.05)
     fig.tight_layout()
     
-    plt.savefig(f"figures/{filename}.pdf",bbox_extra_artists=(lg,), bbox_inches='tight')
-    plt.savefig(f"figures/{filename}.png",bbox_extra_artists=(lg,), bbox_inches='tight')
+    plt.savefig(f"figures/{filename}.pdf",bbox_extra_artists=(lg,fg,), bbox_inches='tight')
+    plt.savefig(f"figures/{filename}.png",bbox_extra_artists=(lg,fg,), bbox_inches='tight')
 
 
 if __name__ == "__main__":
@@ -177,7 +180,7 @@ if __name__ == "__main__":
     dim_noise = 1200
     DEVICE = 0
     gammas = [4, 1.0, 20.0]
-    exps = ["sse"]#["erm", "subg", "rwg"]
+    exps = ["erm", "subg", "rwg", "sse"]
 
     df = parse_json_to_df(["toy_sweep"])
     idx = [
@@ -217,11 +220,12 @@ if __name__ == "__main__":
             d = Toy("/toy_sweep", "tr")
             datasets.append((d.x, d.y))
 
-        all_hm = torch.zeros(len(exps), seeds, 200 * 200)
-        for exp_i, exp in enumerate(exps):
-            for i in range(seeds):
-                heatmap_plane = generate_heatmap_plane(datasets[i][0]).to(DEVICE)
-                all_hm[exp_i, i] = models[(exp, i)].predict(heatmap_plane).detach().cpu()
+        all_hm = torch.zeros(len(exps), seeds, 200 * 200, dtype=torch.float32)
+        with torch.no_grad():
+            for exp_i, exp in enumerate(exps):
+                for i in range(seeds):
+                    heatmap_plane = generate_heatmap_plane(datasets[i][0]).to(DEVICE)
+                    all_hm[exp_i, i] = models[(exp, i)].predict(heatmap_plane).detach().cpu()
         return exps, datasets, all_hm, gammas, heatmap_plane, df
 
     groups = df.groupby(
