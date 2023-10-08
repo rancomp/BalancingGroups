@@ -16,6 +16,9 @@ def product_dict(**kwargs):
 if __name__ == "__main__":
     args = parse_args()
 
+    args["output_dir"] = "toy_sweep"
+    args["num_init_seeds"] = "1"
+
     commands = []
     sweep = {
         'dataset': ['toy'],
@@ -24,10 +27,10 @@ if __name__ == "__main__":
         'num_epochs': [100],#[500],
         'gamma_spu': [4.0],
         'gamma_core': [1.0],
-        'gamma_noise': [2.0],#[2.0, 4.0],
-        'method': ["erm", "sse"],#["erm", "subg", "rwg", "sse"],#["erm", "subg", "rwg"],
+        'gamma_noise': [2.0, 4.0],
+        'method': ["sse"],#["erm", "subg", "rwg", "sse"],
         'lr': [1e-5],#[1e-6, 1e-5],
-        'weight_decay': [0.1],#[0, 0.1, 1, 10],
+        'weight_decay': [0, 0.1, 1],#[0, 0.1, 1, 10],
         'batch_size': [250],
         'init_seed': list(range(int(args["num_init_seeds"]))),
         'T': [1],
