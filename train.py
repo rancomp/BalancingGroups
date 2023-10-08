@@ -46,6 +46,15 @@ def parse_args():
     parser.add_argument('--selector', type=str, default='min_acc_va')
     return vars(parser.parse_args())
 
+def calc_error_from_weights(weights, mu, std):
+    num_models = len(weights)
+    weights = torch.stack(weights)
+    errs = [
+        float(weights[i].sum() * mu / (i+1) / std / weights[i].norm()) 
+        for i in range(10)
+        ]
+    return errs
+
 
 def run_experiment(args):
     start_time = time.time()
@@ -74,7 +83,8 @@ def run_experiment(args):
         "rwy": models.ERM,
         "rwg": models.ERM,
         "dro": models.GroupDRO,
-        "jtt": models.JTT
+        "jtt": models.JTT,
+        "sse": models.SSE,
     }[args["method"]](args, loaders["tr"])
 
     last_epoch = 0
@@ -99,13 +109,24 @@ def run_experiment(args):
         result = {
             "args": args, "epoch": epoch, "time": time.time() - start_time}
         for loader_name, loader in loaders.items():
-            avg_acc, group_accs = model.accuracy(loader)
+            kwargs = {"loader":loader}
+            if args["method"] == "sse":
+                kwargs["average"] = False
+                
+            avg_acc, group_accs = model.accuracy(**kwargs)
             result["acc_" + loader_name] = group_accs
             result["avg_acc_" + loader_name] = avg_acc
+                
+        if args["dataset"] == "toy":
+            if args["method"] == "sse":
+                weights = [model.models[i].state_dict()["network.fc.weight"].squeeze() for i in range(model.num_models)]
+            else:
+                weights = [model.state_dict()["network.fc.weight"].squeeze()]
+            result["theoretical_err"] = calc_error_from_weights(weights, 1, 0.15)
 
         selec_value = {
-            "min_acc_va": min(result["acc_va"]),
-            "avg_acc_va": result["avg_acc_va"],
+            "min_acc_va": min(result["acc_va"]) if args["method"] != "sse" else float(min(result["acc_va"][-1])),
+            "avg_acc_va": result["avg_acc_va"]  if args["method"] != "sse" else float(result["avg_acc_va"][-1]),
         }[args["selector"]]
 
         if selec_value >= best_selec_val:

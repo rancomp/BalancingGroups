@@ -127,8 +127,9 @@ def parse_json_to_df(dirs):
         "dro": "Yes",
         "rwg": "Yes",
         "subg": "Yes",
+        "sse": "Yes",
     }
-    nb_hps = {"erm": 4, "jtt": 6, "suby": 4, "rwy": 4, "dro": 5, "rwg": 4, "subg": 4}
+    nb_hps = {"erm": 4, "jtt": 6, "suby": 4, "rwy": 4, "dro": 5, "rwg": 4, "subg": 4, "sse": 4}
 
     for dname in dirs:
         for fname in glob.glob(os.path.join(dname, "*.out")):
@@ -143,6 +144,10 @@ def parse_json_to_df(dirs):
                 this_row = dict(record["args"])
                 this_row["epoch"] = record["epoch"]
                 this_row["time"] = record["time"] / 3600
+                this_row["acc_tr"] = record["acc_tr"]
+                this_row["acc_va"] = record["acc_va"]
+                this_row["acc_te"] = record["acc_te"]
+                this_row["err_analytic"] = record["theoretical_err"]
                 this_row["min_acc_va"] = min(record["acc_va"])
                 this_row["min_acc_tr"] = min(record["acc_tr"])
                 this_row["avg_acc_va"] = record["avg_acc_va"]

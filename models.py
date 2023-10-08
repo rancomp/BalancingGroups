@@ -3,6 +3,8 @@
 import torch
 import torchvision
 from transformers import BertForSequenceClassification, AdamW, get_scheduler
+import numpy as np
+import os
 
 
 class ToyNet(torch.nn.Module):
@@ -137,13 +139,13 @@ class ERM(torch.nn.Module):
                 torch.nn.BCEWithLogitsLoss(reduction="none")(x.squeeze(),
                                                              y.float())
 
-        self.cuda()
+        self.to("cuda")
 
     def compute_loss_value_(self, i, x, y, g, epoch):
         return self.loss(self.network(x), y).mean()
 
     def update(self, i, x, y, g, epoch):
-        x, y, g = x.cuda(), y.cuda(), g.cuda()
+        x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
         loss_value = self.compute_loss_value_(i, x, y, g, epoch)
 
         if loss_value is not None:
@@ -172,21 +174,33 @@ class ERM(torch.nn.Module):
     def accuracy(self, loader):
         nb_groups = loader.dataset.nb_groups
         nb_labels = loader.dataset.nb_labels
-        corrects = torch.zeros(nb_groups * nb_labels)
-        totals = torch.zeros(nb_groups * nb_labels)
+        corrects = torch.zeros(nb_groups * nb_labels, device="cuda")
+        totals = torch.zeros(nb_groups * nb_labels, device="cuda")
         self.eval()
         with torch.no_grad():
             for i, x, y, g in loader:
-                predictions = self.predict(x.cuda())
+                x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
+                predictions = self.predict(x)
                 if predictions.squeeze().ndim == 1:
-                    predictions = (predictions > 0).cpu().eq(y).float()
+                    predictions = (predictions > 0).eq(y).float()
                 else:
-                    predictions = predictions.argmax(1).cpu().eq(y).float()
+                    predictions = predictions.argmax(1).eq(y).float()
+
                 groups = (nb_groups * y + g)
-                for gi in groups.unique():
-                    corrects[gi] += predictions[groups == gi].sum()
-                    totals[gi] += (groups == gi).sum()
+                # for gi in groups.unique():
+                #     corrects[gi] += predictions[groups == gi].sum()
+                #     totals[gi] += (groups == gi).sum()
+
+                # Compute batch-level corrects and totals
+                batch_corrects = torch.bincount(groups, predictions, minlength=corrects.size(0))
+                batch_totals = torch.bincount(groups, torch.ones_like(groups), minlength=corrects.size(0))
+                # Accumulate batch-level results
+                corrects += batch_corrects
+                totals += batch_totals
+
+                
         corrects, totals = corrects.tolist(), totals.tolist()
+
         self.train()
         return sum(corrects) / sum(totals),\
             [c/t for c, t in zip(corrects, totals)]
@@ -214,12 +228,129 @@ class ERM(torch.nn.Module):
             fname,
         )
 
+class SSE:
+    def __init__(self, hparams, dataloader):
+        self.dataloader = dataloader
+        self.hparams = dict(hparams)
+        self.n_batches = len(dataloader)
+        dataset = dataloader.dataset
+        self.data_type = dataset.data_type
+        self.n_classes = len(set(dataset.y))
+        self.n_groups = len(set(dataset.g))
+        self.n_examples = len(dataset)
+        self.last_epoch = 0
+        self.best_selec_val = 0
+
+        self.num_models = hparams.get("num_models", 10)
+        self.models = [ERM(hparams, dataloader) for _ in range(self.num_models)]
+
+    def predict(self, x, average=True):
+
+        # Collect predictions from all models
+        ensemble_predictions = torch.stack([model.predict(x) for model in self.models])
+        
+        return ensemble_predictions.mean(dim=0) if average else ensemble_predictions.cumsum(dim=0).div(torch.arange(1, self.num_models+1).reshape((-1,1)).float().to("cuda"))
+
+    # def accuracy(self, test_loader):
+    #     accuracies, class_accuracies = zip(*[model.accuracy(test_loader) for model in self.models])
+    #     return np.mean(accuracies), list(np.mean(class_accuracies, axis=0))
+
+    def accuracy(self, loader, average=True):
+        nb_groups = loader.dataset.nb_groups
+        nb_labels = loader.dataset.nb_labels
+        corrects = torch.zeros(self.num_models, nb_groups * nb_labels, device="cuda")
+        totals = torch.zeros(nb_groups * nb_labels, device="cuda")
+        for i in range(self.num_models):
+            self.models[i].eval()
+        with torch.no_grad():
+            for i, x, y, g in loader:
+                x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
+                predictions = self.predict(x, average)
+                if average is False or predictions.squeeze().ndim == 1:
+                    predictions = (predictions > 0).eq(y).float()
+                else:
+                    predictions = predictions.argmax(1).eq(y).float()
+
+                groups = (nb_groups * y + g)
+                # for gi in groups.unique():
+                #     corrects[gi] += predictions[groups == gi].sum()
+                #     totals[gi] += (groups == gi).sum()
+
+                # Compute batch-level corrects and totals
+                if average is False:
+                    for i in range(self.num_models):
+                        batch_corrects = torch.bincount(groups, predictions[i,:], minlength=corrects.size(1))
+                        corrects[i,:] += batch_corrects
+                else:
+                    batch_corrects = torch.bincount(groups, predictions, minlength=corrects.size(0))
+                    corrects += batch_corrects
+
+                # Accumulate totals (does not change per model numbers)
+                batch_totals = torch.bincount(groups, torch.ones_like(groups), minlength=totals.size(0))
+                # Accumulate batch-level results
+                totals += batch_totals
+
+                
+        # corrects, totals = corrects.tolist(), totals.tolist()
+
+        for i in range(self.num_models):
+            self.models[i].train()
+        if average is False:
+            return (corrects.sum(dim=1) / sum(totals)).tolist(), (corrects/totals).tolist()
+        return sum(corrects) / sum(totals), corrects/totals
+
+    def update(self, i, x, y, g, epoch):
+        for model in self.models:
+            loss_value = model.update(i, x, y, g, epoch)
+
+    def load(self, fname):
+        # Load ensemble-specific information
+        ensemble_info_path = os.path.join(self.hparams["output_dir"], "ensemble_info.pt")
+        ensemble_info = torch.load(ensemble_info_path)
+        self.num_models = ensemble_info["num_models"]
+        self.last_epoch = ensemble_info["last_epoch"]
+        
+        # Load each individual model in the ensemble
+        self.models = [ERM(self.hparams, self.dataloader).load(fname.replace("best", f"model{i}_best")) for i in range(self.num_models)]
+
+    def save(self, fname):
+        # Save each individual model in the ensemble with a unique filename
+        for i, model in enumerate(self.models):
+            model.save(fname.replace("best", f"model{i}_best"))
+
+        # Save ensemble-specific information (e.g., hyperparameters)
+        ensemble_info = {
+            "num_models": self.num_models,
+            "last_epoch": self.last_epoch,
+            # Add any other relevant ensemble information here
+        }
+        ensemble_info_path = os.path.join(self.hparams["output_dir"], "ensemble_info.pt")
+        torch.save(ensemble_info, ensemble_info_path)
+
+    def load(self, fname):
+        dicts = torch.load(fname)
+        self.num_models = dicts["num_models"]
+        self.last_epoch = dicts["epoch"]
+        for i in range(self.num_models):
+            self.models[i].load_state_dict(dicts[f"model_{i}"])
+
+    def save(self, fname):
+        torch.save(
+            {
+                **{f"model_{i}": self.models[i].state_dict() for i in range(self.num_models)},
+                "epoch": self.last_epoch,
+                "best_selec_val": self.best_selec_val,
+                "num_models": self.num_models,
+            },
+            fname,
+        )
+
 
 class GroupDRO(ERM):
     def __init__(self, hparams, dataset):
         super(GroupDRO, self).__init__(hparams, dataset)
         self.register_buffer(
-            "q", torch.ones(self.n_classes * self.n_groups).cuda())
+            "q", torch.ones(self.n_classes * self.n_groups).to("cuda"))
 
     def groups_(self, y, g):
         idx_g, idx_b = [], []
@@ -251,7 +382,7 @@ class JTT(ERM):
     def __init__(self, hparams, dataset):
         super(JTT, self).__init__(hparams, dataset)
         self.register_buffer(
-            "weights", torch.ones(self.n_examples, dtype=torch.long).cuda())
+            "weights", torch.ones(self.n_examples, dtype=torch.long).to("cuda"))
 
     def compute_loss_value_(self, i, x, y, g, epoch):
         if epoch == self.hparams["T"] + 1 and\
