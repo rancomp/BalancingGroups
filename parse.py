@@ -144,6 +144,10 @@ def parse_json_to_df(dirs):
                 this_row = dict(record["args"])
                 this_row["epoch"] = record["epoch"]
                 this_row["time"] = record["time"] / 3600
+                this_row["acc_tr"] = record["acc_tr"]
+                this_row["acc_va"] = record["acc_va"]
+                this_row["acc_te"] = record["acc_te"]
+                this_row["err_analytic"] = record["theoretical_err"]
                 this_row["min_acc_va"] = min(record["acc_va"])
                 this_row["min_acc_tr"] = min(record["acc_tr"])
                 this_row["avg_acc_va"] = record["avg_acc_va"]
