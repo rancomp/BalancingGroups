@@ -94,65 +94,82 @@ def plot(
     matplotlib.rcParams["contour.negative_linestyle"] = "solid"
     cm = ListedColormap(["#C82506", "#0365C0"])
     plt.rc("font", size=18, family="Times New Roman")
-    # plt.figure(figsize=(16, 4.5))
-    fig, axs = plt.subplots(2, len(exps), figsize=(4 * len(exps), 8))
 
-    n = int(np.sqrt(heatmap_plane.shape[0]))
-    hmp_x = heatmap_plane[:, 0].detach().cpu().numpy().reshape(n, n)
-    hmp_y = heatmap_plane[:, 1].detach().cpu().numpy().reshape(n, n)
-    hma = heatmap.reshape(-1, n, n).sigmoid()
+    if PLOT_HEATMAP:
+        fig, axs = plt.subplots(2, len(exps), figsize=(4 * len(exps), 8))
+
+        n = int(np.sqrt(heatmap_plane.shape[0]))
+        hmp_x = heatmap_plane[:, 0].detach().cpu().numpy().reshape(n, n)
+        hmp_y = heatmap_plane[:, 1].detach().cpu().numpy().reshape(n, n)
+        hma = heatmap.reshape(-1, n, n).sigmoid()
+    else:
+        fig, axs = plt.subplots(1, len(exps), figsize=(8 * len(exps), 8))
 
     for i in range(len(exps)):
-        ax = axs[0, i] if len(exps) > 1 else axs[0]
-        vmin, vmax = hma[i, -1, -1], hma[i, 1,1]
-        delta = vmax-vmin
-        vmin, vmax = vmin-0.25*delta, vmax+0.25*delta
-        cm = plt.cm.RdBu.copy()
-        cm.set_under("#C82506")
-        cm.set_over("#0365C0")
-        p = ax.contourf(
-            hmp_x,
-            hmp_y,
-            hma[i],
-            np.linspace(vmin, vmax, 20),
-            cmap=cm,
-            alpha=0.8,
-            vmin=vmin,
-            vmax=vmax,
-            extend="both"
-        )
-        ax.contour(
-            hmp_x, hmp_y, hma[i], [0.5], antialiased=True, linewidths=1.0, colors="k"
-        )
-        ax.set_title(exps[i].upper())
+        if PLOT_HEATMAP:
+            ax = axs[0, i] if len(exps) > 1 else axs[0]
+            vmin, vmax = hma[i, -1, -1], hma[i, 1,1]
+            delta = vmax-vmin
+            vmin, vmax = vmin-0.25*delta, vmax+0.25*delta
+            cm = plt.cm.RdBu.copy()
+            cm.set_under("#C82506")
+            cm.set_over("#0365C0")
+            p = ax.contourf(
+                hmp_x,
+                hmp_y,
+                hma[i],
+                np.linspace(vmin, vmax, 20),
+                cmap=cm,
+                alpha=0.8,
+                vmin=vmin,
+                vmax=vmax,
+                extend="both"
+            )
+            ax.contour(
+                hmp_x, hmp_y, hma[i], [0.5], antialiased=True, linewidths=1.0, colors="k"
+            )
+            ax.set_title(exps[i].upper())
 
-        ax.set_xlabel("x spu * gamma spu")
-        ax.set_ylabel("x core * gamma core")
-        ax.text(-1.7, 1.7, "I", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
-        ax.text(1.7, 1.7, "II", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
-        ax.text(-1.7, -1.7, "III", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
-        ax.text(1.7, -1.7, "IV", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
-        ax.axhline(y=0, ls="--", lw=0.7, color="k", alpha=0.5)
-        ax.axvline(x=0, ls="--", lw=0.7, color="k", alpha=0.5)
-        # ax.xaxis.set_major_locator(plt.NullLocator())
-        # ax.yaxis.set_major_locator(plt.NullLocator())
-        ax.set_xlim(np.array([-2, 2]))
-        ax.set_ylim(np.array([-2, 2]))
-        ticks = [-2, -1, 0, 1, 2]
-        ax.set_xticks(ticks)
-        ax.set_yticks(ticks)
-        ax.set_xticklabels([int(t * gammas[0]) for t in ticks])
-        ax.set_yticklabels([int(t * gammas[1]) for t in ticks])
+            ax.set_xlabel("x spu * gamma spu")
+            ax.set_ylabel("x core * gamma core")
+            ax.text(-1.7, 1.7, "I", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
+            ax.text(1.7, 1.7, "II", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
+            ax.text(-1.7, -1.7, "III", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
+            ax.text(1.7, -1.7, "IV", horizontalalignment='center', verticalalignment='center', fontsize=18, color="k")
+            ax.axhline(y=0, ls="--", lw=0.7, color="k", alpha=0.5)
+            ax.axvline(x=0, ls="--", lw=0.7, color="k", alpha=0.5)
+            # ax.xaxis.set_major_locator(plt.NullLocator())
+            # ax.yaxis.set_major_locator(plt.NullLocator())
+            ax.set_xlim(np.array([-2, 2]))
+            ax.set_ylim(np.array([-2, 2]))
+            ticks = [-2, -1, 0, 1, 2]
+            ax.set_xticks(ticks)
+            ax.set_yticks(ticks)
+            ax.set_xticklabels([int(t * gammas[0]) for t in ticks])
+            ax.set_yticklabels([int(t * gammas[1]) for t in ticks])
 
-        for X, y in all_train_envs:
-            ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm, edgecolors='none', s=5, alpha=0.3)
+            for X, y in all_train_envs:
+                ax.scatter(X[:, 0], X[:, 1], c=y, cmap=cm, edgecolors='none', s=5, alpha=0.3)
 
-        ax_ = axs[1, i] if len(exps) > 1 else axs[1]
+            ax_ = axs[1, i] if len(exps) > 1 else axs[1]
+        else:
+            ax_ = axs[i] if len(exps) > 1 else axs
         l = sns.lineplot(
-            data=error_df.groupby("method").get_group(exps[i]),
+            data=(
+                error_df
+                .groupby("method")
+                .get_group(exps[i])
+                .explode("error")
+                .assign(
+                    num_models=lambda df: df.groupby(["index"]).cumcount()+1,
+                    error=lambda df: df.error.apply(lambda x: x if isinstance(x,float) else min(x))
+                    )
+                .loc[lambda df: df.num_models.isin([10])]
+                ),#error_df.groupby("method").get_group(exps[i]),
             x="epoch",
             y="error",
-            hue="phase",
+            hue="num_models",
+            style="phase",
             ax=ax_,
             ci=90
         )
@@ -165,8 +182,8 @@ def plot(
         ax_.set_ylabel("worst-group-accuracy")
         ax_.set_ylim([-0.005, 1.005])
 
-    lg = fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.8, -0.05))
-    fg = fig.suptitle(filename, x=0.4, y=0.05)
+    lg = fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.8, 0.25))
+    fg = fig.suptitle(filename, x=0.3, y=0.0)
     fig.tight_layout()
     
     plt.savefig(f"figures/{filename}.pdf",bbox_extra_artists=(lg,fg,), bbox_inches='tight')
@@ -193,6 +210,7 @@ if __name__ == "__main__":
         "file_path",
     ]
     # df.set_index(idx)
+    exps = df.method.unique()
 
     def get_ploting_params(df):
         models = {
@@ -205,11 +223,14 @@ if __name__ == "__main__":
         df = (
             df.melt(
                 id_vars=idx,
-                value_vars=["min_acc_va", "min_acc_te", "min_acc_tr"],
+                value_vars=["acc_va", "acc_te", "acc_tr", "err_analytic"],#["min_acc_va", "min_acc_te", "min_acc_tr"],
                 var_name="phase",
                 value_name="error",
             )
-            .replace({"min_acc_va": "valid", "min_acc_te": "test", "min_acc_tr": "train"})
+            .replace(
+                {"acc_va": "valid", "acc_te": "test", "acc_tr": "train",}# "err_analytic":"analytic"}
+                #{"min_acc_va": "valid", "min_acc_te": "test", "min_acc_tr": "train"}
+                )
             .reset_index()
         )
 
