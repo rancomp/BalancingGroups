@@ -244,16 +244,60 @@ class SSE:
         self.num_models = hparams.get("num_models", 10)
         self.models = [ERM(hparams, dataloader) for _ in range(self.num_models)]
 
-    def predict(self, x):
-        # Collect predictions from all models
-        predictions = [model.predict(x) for model in self.models]
-        # Perform majority vote
-        ensemble_predictions = torch.stack(predictions).mean(dim=0)
-        return ensemble_predictions
+    def predict(self, x, average=True):
 
-    def accuracy(self, test_loader):
-        accuracies, class_accuracies = zip(*[model.accuracy(test_loader) for model in self.models])
-        return np.mean(accuracies), list(np.mean(class_accuracies, axis=0))
+        # Collect predictions from all models
+        ensemble_predictions = torch.stack([model.predict(x) for model in self.models])
+        
+        return ensemble_predictions.mean(dim=0) if average else ensemble_predictions.cumsum(dim=0).div(torch.arange(1, self.num_models+1).reshape((-1,1)).float().to("cuda"))
+
+    # def accuracy(self, test_loader):
+    #     accuracies, class_accuracies = zip(*[model.accuracy(test_loader) for model in self.models])
+    #     return np.mean(accuracies), list(np.mean(class_accuracies, axis=0))
+
+    def accuracy(self, loader, average=True):
+        nb_groups = loader.dataset.nb_groups
+        nb_labels = loader.dataset.nb_labels
+        corrects = torch.zeros(self.num_models, nb_groups * nb_labels, device="cuda")
+        totals = torch.zeros(nb_groups * nb_labels, device="cuda")
+        for i in range(self.num_models):
+            self.models[i].eval()
+        with torch.no_grad():
+            for i, x, y, g in loader:
+                x, y, g = x.to("cuda"), y.to("cuda"), g.to("cuda")
+                predictions = self.predict(x, average)
+                if average is False or predictions.squeeze().ndim == 1:
+                    predictions = (predictions > 0).eq(y).float()
+                else:
+                    predictions = predictions.argmax(1).eq(y).float()
+
+                groups = (nb_groups * y + g)
+                # for gi in groups.unique():
+                #     corrects[gi] += predictions[groups == gi].sum()
+                #     totals[gi] += (groups == gi).sum()
+
+                # Compute batch-level corrects and totals
+                if average is False:
+                    for i in range(self.num_models):
+                        batch_corrects = torch.bincount(groups, predictions[i,:], minlength=corrects.size(1))
+                        corrects[i,:] += batch_corrects
+                else:
+                    batch_corrects = torch.bincount(groups, predictions, minlength=corrects.size(0))
+                    corrects += batch_corrects
+
+                # Accumulate totals (does not change per model numbers)
+                batch_totals = torch.bincount(groups, torch.ones_like(groups), minlength=totals.size(0))
+                # Accumulate batch-level results
+                totals += batch_totals
+
+                
+        # corrects, totals = corrects.tolist(), totals.tolist()
+
+        for i in range(self.num_models):
+            self.models[i].train()
+        if average is False:
+            return (corrects.sum(dim=1) / sum(totals)).tolist(), (corrects/totals).tolist()
+        return sum(corrects) / sum(totals), corrects/totals
 
     def update(self, i, x, y, g, epoch):
         for model in self.models:
